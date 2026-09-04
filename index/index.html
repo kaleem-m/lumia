@@ -1,0 +1,127 @@
+﻿<!DOCTYPE html>
+<html lang="en" dir="ltr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Lexio â€” build a private vocabulary in any language, with secure account sync or optional guest mode.">
+<meta name="theme-color" content="#F9FAFB" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12151A" media="(prefers-color-scheme: dark)">
+<title>Lexio — Build your own vocabulary</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/notebook.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+
+<script>
+  // Applied before paint to avoid a theme flash.
+  (function () {
+    try {
+      var saved = JSON.parse(localStorage.getItem('lexio.v1') || '{}');
+      var theme = (saved.settings && saved.settings.theme) || 'system';
+      var dark = theme === 'dark' || (theme === 'system' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      if (saved.settings && saved.settings.uiDir === 'rtl') document.documentElement.dir = 'rtl';
+    } catch (e) { /* first run */ }
+  })();
+</script>
+</head>
+
+<body>
+<a class="skip-link" href="#view">Skip to content</a>
+
+<div class="app">
+
+  <!-- ============ Desktop side navigation / mobile brand source ============ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar__brand">
+      <span class="brand__mark" id="brand-mark" aria-hidden="true"></span>
+      <span class="brand__text">
+        <strong>Lexio</strong>
+        <small>your words, your pace</small>
+      </span>
+    </div>
+
+    <nav class="sidebar__nav" id="sidebar-nav" aria-label="Main"></nav>
+
+    <div class="sidebar__foot">
+      <div class="storage-note">
+        <span class="storage-note__dot" aria-hidden="true"></span>
+        <p id="storage-note-copy">Guest mode: words stay on this device and are not securely backed up.</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ Content column ============ -->
+  <div class="content">
+    <header class="topbar" id="topbar">
+      <div class="topbar__inner">
+        <div class="topbar__brand">
+          <span class="brand__mark brand__mark--sm" id="brand-mark-mobile" aria-hidden="true"></span>
+          <span class="topbar__title" id="topbar-title">Lexio</span>
+        </div>
+
+        <div class="topbar__actions">
+          <button type="button" class="chip account-button" id="account-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">
+            <span class="chip__icon" id="account-icon" aria-hidden="true"></span>
+            <span class="chip__label" id="account-label">Sign in</span>
+          </button>
+          <button type="button" class="chip chip--lang" id="lang-chip" aria-haspopup="dialog">
+            <span class="chip__icon" id="lang-chip-icon" aria-hidden="true"></span>
+            <span class="chip__label" id="lang-chip-label">Language</span>
+          </button>
+          <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch to dark theme">
+            <span id="theme-toggle-icon" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="view" id="view" tabindex="-1"></main>
+  </div>
+
+  <!-- ============ Mobile bottom tab bar ============ -->
+  <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root" class="toast-root" role="status" aria-live="polite"></div>
+
+<script src="js/supabase-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
+<script src="js/icons.js"></script>
+<script src="js/categories.js"></script>
+<script src="js/store.js"></script>
+<script src="js/scheduler.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/cloud.js"></script>
+<script src="js/word-display.js"></script>
+<script src="js/activities/registry.js"></script>
+<script src="js/activities/flashcards.js"></script>
+<script src="js/activities/quiz.js"></script>
+<script src="js/activities/type-it.js"></script>
+<script src="js/activities/match.js"></script>
+<script src="js/activities/memory.js"></script>
+<script src="js/notebook/scripts.js"></script>
+<script src="js/notebook/sanitize.js"></script>
+<script src="js/notebook/storage.js"></script>
+<script src="js/notebook/exporters.js"></script>
+<script src="js/views/home.js"></script>
+<script src="js/views/category.js"></script>
+<script src="js/views/learn.js"></script>
+<script src="js/views/review.js"></script>
+<script src="js/views/account.js"></script>
+<script src="js/views/manage.js"></script>
+<script src="js/views/notebook.js"></script>
+<script src="js/router.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,291 @@
+﻿<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Lexio store test</title></head><body>
+<script src="js/icons.js"></script>
+<script src="js/categories.js"></script>
+<script src="js/store.js"></script>
+<script src="js/scheduler.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/word-display.js"></script>
+<script src="js/activities/registry.js"></script>
+<script src="js/activities/flashcards.js"></script>
+<script src="js/activities/quiz.js"></script>
+<script src="js/activities/type-it.js"></script>
+<script src="js/activities/match.js"></script>
+<script src="js/activities/memory.js"></script>
+<script>
+(function () {
+  var pass = 0, fail = 0;
+  function ok(name, cond) {
+    if (cond) { pass++; console.log('PASS ' + name); }
+    else { fail++; console.error('FAIL ' + name); }
+  }
+
+  Store.resetAll();
+  ok('starts with zero words', Store.totals().words === 0);
+  ok('20 categories defined', Categories.all.length === 20);
+  ok('all category icons exist', Categories.all.every(function (c) { return Icon.has(c.icon); }));
+  ok('all tiers used', Categories.tiers.every(function (t) { return Categories.byTier(t.id).length > 0; }));
+
+  var lang = Store.addLanguage({ name: 'Arabic', dir: 'rtl' });
+  ok('language added + auto-active', Store.activeLanguage().id === lang.id);
+  ok('rtl direction stored', lang.dir === 'rtl');
+
+  // Word CRUD, including per-word RTL and reserved learning fields.
+  var red = Store.addWord({ languageId: lang.id, categoryId: 'colors', term: '\u0623\u062D\u0645\u0631', meaning: 'red', dir: 'rtl' });
+  var added = Store.addWords([
+    { languageId: lang.id, categoryId: 'colors', term: '\u0623\u0632\u0631\u0642', meaning: 'blue', dir: 'rtl' },
+    { languageId: lang.id, categoryId: 'verbs', term: '\u064A\u0643\u062A\u0628', meaning: 'to write', dir: 'rtl' }
+  ]);
+  ok('single word add stores RTL', red.dir === 'rtl' && red.term === '\u0623\u062D\u0645\u0631');
+  ok('bulk add returns entries', added.length === 2);
+  ok('word schema reserves stats', red.stats.seen === 0 && red.stats.nextReviewAt === null);
+  Store.updateWord(red.id, { meaning: 'the color red', example: '\u0647\u0630\u0627 \u0623\u062D\u0645\u0631' });
+  ok('word update preserves id and date', Store.getWord(red.id).meaning === 'the color red' && Store.getWord(red.id).dateAdded === red.dateAdded);
+  Store.state.progress[red.id] = { box: 3, seen: 5, correct: 4, lastSeen: Date.now() };
+
+  var stats = Store.allCategoryStats();
+  ok('colors total = 2', stats.colors.total === 2);
+  ok('colors learned = 1', stats.colors.learned === 1);
+  ok('verbs total = 1, learned 0', stats.verbs.total === 1 && stats.verbs.learned === 0);
+  ok('untouched category = 0', stats.pronouns.total === 0);
+  ok('categoryStats matches', Store.categoryStats('colors').learned === 1);
+  ok('totals aggregate', Store.totals().words === 3 && Store.totals().learned === 1);
+  ok('categoriesStarted = 2', Store.totals().categoriesStarted === 2);
+
+  // language scoping
+  var l2 = Store.addLanguage({ name: 'Spanish', dir: 'ltr' });
+  Store.setActiveLanguage(l2.id);
+  ok('counts scoped to active language', Store.totals().words === 0);
+  Store.setActiveLanguage(lang.id);
+
+  // export / import round trip
+  var json = Store.exportJSON();
+  Store.resetAll();
+  ok('reset clears words', Store.totals().words === 0);
+  var res = Store.importJSON(json, 'replace');
+  ok('import restores words', Store.totals().words === 3);
+  ok('import restores progress', Store.totals().learned === 1);
+  ok('import reports counts', res.words === 3 && res.languages === 2);
+  ok('import preserves RTL word', Store.getWord(red.id).dir === 'rtl');
+
+  // merge should not duplicate
+  Store.importJSON(json, 'merge');
+  ok('merge is idempotent', Store.totals().words === 3);
+
+  // delete removes a word and its progress record
+  Store.deleteWord(red.id);
+  ok('delete removes word', Store.getWord(red.id) === null && Store.totals().words === 2);
+  ok('delete removes progress', !Store.state.progress[red.id]);
+
+  // bad input
+  var threw = false;
+  try { Store.importJSON('"nope"', 'replace'); } catch (e) { threw = true; }
+  ok('rejects invalid backup', threw);
+  threw = false;
+  try { Store.addWord({ languageId: lang.id, categoryId: 'not-real', term: 'x', meaning: 'y' }); } catch (e) { threw = true; }
+  ok('rejects invalid category', threw);
+
+  /* ========================================================================
+     PHASE 4 - Learn mode: scheduler, answers, sessions, gating
+     ======================================================================== */
+  ok('scheduler exposes six boxes', Scheduler.BOXES.length === 6);
+  ok('activities register five modes', Activities.list().length === 5);
+  ok('production and memory activities are available',
+    Activities.get('type-it').minWords === 1 && Activities.get('memory').minWords === 3);
+  ok('gate minimum is four words', Activities.GATE_MIN_WORDS === 4);
+
+  // A fresh word climbs one box per correct answer.
+  var learner = Store.addWord({ languageId: lang.id, categoryId: 'numbers', term: 'wahid', meaning: 'one' });
+  Store.recordAnswer(learner.id, true);
+  ok('first correct lands in box 1', Store.getWord(learner.id).stats.box === 1);
+  Store.recordAnswer(learner.id, true);
+  Store.recordAnswer(learner.id, true);
+  var ls = Store.getWord(learner.id).stats;
+  ok('box climbs to 3 after three correct', ls.box === 3 && ls.seen === 3 && ls.streak === 3);
+  ok('learned at three correct answers', Store.isLearned(learner.id));
+  ok('progress map mirrors stats', Store.state.progress[learner.id].correct === 3);
+
+  // A miss drops the word straight back to box 0, due immediately.
+  Store.recordAnswer(learner.id, false);
+  ls = Store.getWord(learner.id).stats;
+  ok('miss resets box and streak', ls.box === 0 && ls.streak === 0 && ls.incorrect === 1);
+  ok('missed word is due right away', Scheduler.isDue(Store.getWord(learner.id)));
+
+  // A healthy word scheduled for tomorrow is not due yet.
+  var healthy = Store.addWord({ languageId: lang.id, categoryId: 'animals', term: 'qiTT', meaning: 'cat' });
+  Store.recordAnswer(healthy.id, true);
+  ok('boxed word not due yet', !Scheduler.isDue(Store.getWord(healthy.id)));
+  ok('next review about a day out', Math.abs(Store.getWord(healthy.id).stats.nextReviewAt - Date.now() - Scheduler.BOXES[1].days * 86400000) < 5000);
+
+  // Weights: due > new > mastered-and-resting.
+  Store.recordAnswer(healthy.id, true);
+  Store.recordAnswer(healthy.id, true);
+  Store.recordAnswer(healthy.id, true);   // healthy climbs to box 4
+  var unseenWord = Store.addWord({ languageId: lang.id, categoryId: 'food', term: 'tuffaH', meaning: 'apple' });
+  ok('due words weigh most', Scheduler.weight(Store.getWord(learner.id)) === 10);
+  ok('new words weigh six', Scheduler.weight(Store.getWord(unseenWord.id)) === 6);
+  ok('resting words weigh least', Scheduler.weight(Store.getWord(healthy.id)) <= 3);
+
+  // Deck building: capped, unique, drawn from the pool.
+  var pool = Store.words();
+  var bigDeck = Scheduler.buildDeck(pool, 50);
+  var ids = {};
+  bigDeck.forEach(function (w) { ids[w.id] = true; });
+  ok('deck never exceeds the pool', bigDeck.length === pool.length);
+  ok('deck holds no duplicates', Object.keys(ids).length === bigDeck.length);
+  var smallDeck = Scheduler.buildDeck(pool, 3);
+  ok('deck respects requested size', smallDeck.length === 3);
+
+  // Sessions are recorded and feed the streak.
+  var sessionsBefore = Store.state.sessions.length;
+  var entry = Store.finishSession({
+    mode: 'flashcards',
+    categoryId: null,
+    total: 5,
+    correct: 4,
+    durationMs: 90000
+  });
+  ok('session appended', Store.state.sessions.length === sessionsBefore + 1);
+  ok('session keeps its shape', entry.mode === 'flashcards' && entry.total === 5 && entry.correct === 4);
+  ok('streak counts today', Store.streak() >= 1);
+
+  // Deleting a practised word clears its learning data too.
+  Store.deleteWord(learner.id);
+  ok('delete clears progress map entry', !Store.state.progress[learner.id]);
+
+  /* ========================================================================
+     PHASE 5 - Review: snapshot aggregates reflect sessions and answers
+     ======================================================================== */
+  ok('four words remain for review checks', Store.totals().words === 4);
+
+  var snap = Store.reviewSnapshot();
+  ok('snapshot counts one learned word', snap.totals.learned === 1);
+  ok('box distribution matches practice', snap.boxes.join(',') === '3,0,0,0,1,0');
+  ok('nothing overdue right now', snap.dueNow === 0);
+  ok('lifetime answers counted from stats',
+    snap.allTime.answers === 4 && snap.allTime.accuracy === 100);
+  ok('practice time summed from sessions', snap.allTime.seconds === 90);
+
+  var cats = {};
+  snap.categories.forEach(function (c) { cats[c.id] = c; });
+  ok('only categories with words are listed', snap.categories.length === 4);
+  ok('practised category reports recall', cats.animals.practised === 1 && cats.animals.accuracy === 100);
+  ok('unpractised category reports null recall', cats.colors.accuracy === null);
+
+  // The page can never go stale: a fresh miss shows up in the next snapshot.
+  ok('needs-work list starts clean', snap.needsWork.length === 0);
+  var tuffah = Store.getWord(unseenWord.id);
+  Store.recordAnswer(tuffah.id, false);
+  var snap2 = Store.reviewSnapshot();
+  ok('fresh miss appears immediately', snap2.needsWork.length === 1 &&
+    snap2.needsWork[0].term === 'tuffaH' && snap2.needsWork[0].misses === 1);
+  ok('weak word inherits rtl direction', snap2.needsWork[0].dir === 'rtl');
+  ok('lifetime answers grew with it', snap2.allTime.answers === 5);
+
+  // Session history: shape, ordering and the fourteen-day strip.
+  Store.state.sessions.push({ at: Date.now() - 2 * 86400000, mode: 'match',
+    categoryId: 'animals', total: 5, correct: 5, durationMs: 40000 });
+  Store.finishSession({ mode: 'quiz', categoryId: null, total: 2, correct: 1, durationMs: 30000 });
+
+  var snap3 = Store.reviewSnapshot();
+  ok('history is newest first',
+    snap3.recentSessions[0].mode === 'quiz' &&
+    snap3.recentSessions[1].mode === 'flashcards' &&
+    snap3.recentSessions[2].mode === 'match');
+  ok('history keeps full session shape',
+    snap3.recentSessions[0].correct === 1 && snap3.recentSessions[0].total === 2 &&
+    snap3.recentSessions[0].durationMs === 30000);
+  ok('fourteen-day strip always spans two weeks', snap3.days.length === 14);
+  var dayAnswers = snap3.days.reduce(function (a, d) { return a + d.answers; }, 0);
+  ok('day buckets hold every logged answer', dayAnswers === 12); // 5 flash + 5 match + 2 quiz
+  var midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  var todayBucket = snap3.days.filter(function (d) { return d.t === midnight.getTime(); })[0];
+  ok("today's bucket carries today's sessions",
+    todayBucket && todayBucket.answers === 7 && todayBucket.sessions === 2);
+  ok('backdated session lands two days ago',
+    snap3.days.some(function (d) { return d.t < midnight.getTime() && d.answers === 5 && d.sessions === 1; }));
+
+  /* ========================================================================
+     PHASE 6 - transliteration-first words with optional native scripts
+     ======================================================================== */
+  ok('schema bumped for native script', Store.schemaVersion === 3);
+
+  var dual = Store.addWord({ languageId: lang.id, categoryId: 'greetings',
+    term: 'salaam', nativeScript: 'سلام', meaning: 'peace' });
+  ok('both spellings stored', dual.term === 'salaam' && dual.nativeScript === 'سلام');
+
+  var nativeOnly = Store.addWord({ languageId: lang.id, categoryId: 'phrases',
+    term: '', nativeScript: 'shukran-native', meaning: 'thanks' });
+  ok('native-only entry allowed', nativeOnly.term === '' && nativeOnly.nativeScript === 'shukran-native');
+
+  threw = false;
+  try { Store.addWord({ languageId: lang.id, categoryId: 'phrases', term: '', nativeScript: '', meaning: 'x' }); }
+  catch (e) { threw = true; }
+  ok('at least one script required', threw);
+  threw = false;
+  try { Store.addWord({ languageId: lang.id, categoryId: 'phrases', term: '   ', nativeScript: '', meaning: 'x' }); }
+  catch (e) { threw = true; }
+  ok('whitespace-only word rejected', threw);
+
+  Store.updateWord(dual.id, { nativeScript: 'salaam-native-edited' });
+  var dualEdited = Store.getWord(dual.id);
+  ok('edit updates only the native field',
+    dualEdited.term === 'salaam' && dualEdited.nativeScript === 'salaam-native-edited');
+
+  ok('search reaches the native script',
+    Store.words({ query: 'shukran-native' }).length === 1);
+
+  ok('display primary prefers transliteration', WordDisplay.primary(dualEdited) === 'salaam');
+  ok('display secondary hides duplicates',
+    WordDisplay.secondary({ term: 'x', nativeScript: 'X' }) === '');
+  ok('display secondary exposes real natives',
+    WordDisplay.secondary(dualEdited) === 'salaam-native-edited');
+  ok('native-only falls back cleanly',
+    WordDisplay.primary(nativeOnly) === 'shukran-native' &&
+    WordDisplay.secondary(nativeOnly) === '');
+
+  var backupNative = Store.exportJSON();
+  Store.resetAll();
+  Store.importJSON(backupNative, 'replace');
+  var restoredNative = Store.getWord(dual.id);
+  ok('native script survives a backup round trip',
+    !!restoredNative && restoredNative.term === 'salaam' &&
+    restoredNative.nativeScript === 'salaam-native-edited');
+
+  /* Encoding guard: real Arabic code points must survive storage exactly. */
+  var utf8Probe = Store.addWord({ languageId: lang.id, categoryId: 'greetings',
+    term: 'marhaba-utf8', nativeScript: '\u0645\u0631\u062D\u0628\u0627', meaning: 'hi' });
+  ok('arabic native stored byte-exact',
+    Store.getWord(utf8Probe.id).nativeScript === '\u0645\u0631\u062D\u0628\u0627');
+
+  /* ========================================================================
+     PHASE 7 - My Account: native-script preference + clearVocabulary
+     ======================================================================== */
+  ok('native script preference defaults on', Store.settings.showNativeScript !== false);
+  ok('profile holder exists for guests',
+    Store.settings.profile && typeof Store.settings.profile.displayName === 'string');
+  ok('secondary honours the preference (on)',
+    WordDisplay.secondary(utf8Probe) === '\u0645\u0631\u062D\u0628\u0627');
+
+  Store.setSetting('showNativeScript', false);
+  ok('secondary hides when preference is off', WordDisplay.secondary(utf8Probe) === '');
+  Store.setSetting('showNativeScript', true);
+  ok('secondary returns when preference is back on',
+    WordDisplay.secondary(utf8Probe) === '\u0645\u0631\u062D\u0628\u0627');
+
+  var wordsBeforeClear = Store.totals().words;
+  var langsBeforeClear = Store.languages().length;
+  ok('clearVocabulary has something to clear', wordsBeforeClear > 0);
+  Store.clearVocabulary();
+  ok('clearVocabulary empties words and progress',
+    Store.totals().words === 0 && Object.keys(Store.state.progress).length === 0);
+  ok('clearVocabulary keeps languages and settings',
+    Store.languages().length === langsBeforeClear &&
+    Store.settings.showNativeScript === true);
+
+  Store.resetAll();
+  console.log('RESULT ' + pass + ' passed, ' + fail + ' failed');
+})();
+</script>
+</body></html>
+
